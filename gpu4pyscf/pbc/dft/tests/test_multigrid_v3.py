@@ -1117,3 +1117,46 @@ class KnownValues(unittest.TestCase):
 if __name__ == '__main__':
     print("Full Tests for multigrid v3")
     unittest.main()
+
+
+class BucketPartition(unittest.TestCase):
+    def test_fft_bucket_completeness(self):
+        # Every shell pair with a positive Ecut estimate must land in exactly
+        # one FFT bucket. pair_ke is float32 and the bucket bounds are float64:
+        # when the ke ladder reaches the final mesh exactly, the last bucket's
+        # upper bound equals ke_cutoff, and pairs clamped to a float32 value
+        # rounded above ke_cutoff were left out of every bucket. For this
+        # cubic 5-bohr cell the affected cubic meshes include 26, 31 and 44.
+        from gpu4pyscf.pbc.dft.multigrid_v3 import (
+            _non_trivial_bvk_pairs, _bvk_pairs_to_supmol_pairs,
+            _estimate_Ecut_and_grid_ranges)
+        cell = pyscf.M(atom='He 0 0 0', basis=[[0, (1., 1.)], [0, (60., 1.)]],
+                       unit='B', precision=1e-10, a=np.eye(3)*5)
+        for n in (26, 31, 44):
+            ni = multigrid.MultiGridNumInt(cell)
+            ni.enable_aft = False
+            ni.mesh = [n] * 3
+            ni.build(xctype='LDA')
+            scell = ni.sorted_cell
+            rad = scell.rcut / ni.bvkcell.vol**(1./3) + 1
+            precision = scell.precision / (4*np.pi * rad**2 * 2)
+            bas_ij_idx = _non_trivial_bvk_pairs(ni, precision)
+            supmol_pairs = _bvk_pairs_to_supmol_pairs(ni, bas_ij_idx, precision, 'LDA')
+            pair_ke = _estimate_Ecut_and_grid_ranges(
+                ni, supmol_pairs, ni.ke_cutoff, precision, 'LDA')[0]
+            n_clamped = int((pair_ke >= np.float32(ni.ke_cutoff * (1 - 1e-6))).sum())
+            self.assertGreater(n_clamped, 0, f'mesh {n}: no clamped pairs, test is void')
+            expected = int((pair_ke > 0).sum())
+            got = sum(len(b) for bucket in ni.fft_buckets
+                      for b in bucket['bas_ij_cache'])
+            self.assertEqual(got, expected, f'mesh {n}: {got} of {expected} pairs bucketed')
+
+    def test_clamped_pairs_in_last_bucket(self):
+        # The clamped Ecut value must not exceed ke_cutoff in float64, so the
+        # clamped pairs satisfy pair_ke <= ke_upper for a last bucket whose
+        # upper bound equals ke_cutoff.
+        from gpu4pyscf.pbc.dft.multigrid_v3 import _ke_max_f32
+        for ke_max in (218.12470933, 308.46562254, 124.91583061, 0.1, 1333.96245263):
+            v = _ke_max_f32(ke_max)
+            self.assertLessEqual(float(v), ke_max)
+            self.assertLess(ke_max - float(v), 1e-4 * ke_max)

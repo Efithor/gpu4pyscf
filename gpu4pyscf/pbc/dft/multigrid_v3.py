@@ -500,6 +500,19 @@ def _get_L_bases(nimgs, a):
     L_bases = cp.array(np.hstack([Tx, Ty, Tz]))
     return L_bases
 
+def _ke_max_f32(ke_max):
+    '''Largest float32 value not above ke_max.
+
+    pair_ke and Ecut estimates are float32 while the bucket bounds derived
+    from ke_max are float64. Clamping with float32(ke_max) can round above
+    ke_max; pairs clamped that way fall outside the last bucket when its
+    upper bound equals ke_max exactly and are silently dropped.
+    '''
+    v = np.float32(ke_max)
+    if float(v) > float(ke_max):
+        v = np.nextafter(v, np.float32(0))
+    return v
+
 def _estimate_Ecut_and_grid_ranges(ni, bas_ij_idx, ke_max, precision, xctype):
     '''Estimate the FFT energy cutoff and the spread of each orbital pair
     in real space'''
@@ -507,8 +520,9 @@ def _estimate_Ecut_and_grid_ranges(ni, bas_ij_idx, ke_max, precision, xctype):
     # Some orbitals may require high Ecut, sometimes higher than ke_max.
     # Use ke_max to limit the highest Ecut. This ensures that these orbital
     # pairs are included in the last bucket in _partition_ke_for_fft.
+    ke_max32 = _ke_max_f32(ke_max)
     Ecut_by_shell = _estimate_fft_Ecut_per_shell(cell, precision)
-    Ecut_by_shell[Ecut_by_shell > ke_max] = ke_max
+    Ecut_by_shell[Ecut_by_shell > ke_max32] = ke_max32
     Ecut_by_shell = cp.asarray(Ecut_by_shell, dtype=np.float32)
 
     npairs = len(bas_ij_idx)
@@ -535,7 +549,7 @@ def _estimate_Ecut_and_grid_ranges(ni, bas_ij_idx, ke_max, precision, xctype):
         ctypes.c_int(li_inc), ctypes.c_int(lj_inc),
         ctypes.c_float(math.log(precision)),
         ctypes.c_float(undressed_threshold),
-        ctypes.c_float(ke_max))
+        ctypes.c_float(ke_max32))
     if err != 0:
         raise RuntimeError('grid range kernel failed')
     return pair_ke, grid_frac_ranges
@@ -701,6 +715,14 @@ def _partition_ke_for_fft(ni, pair_idx, init_ke, ke_max, precision, xctype, log)
         # increase the mesh, causing the loop stuck
         mesh[mesh < 8] = 8
         ke_lower, ke_upper = ke_upper, mesh_to_ke(a, mesh).min()
+
+    # Every pair with a positive Ecut estimate must be in exactly one bucket.
+    # A pair left out is silently missing from the density and the gradients.
+    n_bucketed = sum(len(b) for bucket in buckets for b in bucket['bas_ij_cache'])
+    n_pairs = int((pair_ke > 0).sum())
+    if n_bucketed != n_pairs:
+        raise RuntimeError(f'FFT bucket partition incomplete: {n_bucketed} of '
+                           f'{n_pairs} shell pairs assigned (ke_max={ke_max})')
     return buckets
 
 def _non_trivial_bvk_pairs(ni, precision):
@@ -774,7 +796,7 @@ def _aft_Ecut_estimation(ni, bas_ij_idx, ke_max, precision, xctype='LDA'):
         ctypes.c_float(math.log(precision)),
         # Set the upper limit of Ecut. This ensures all high-Ecut orbital pairs
         # are handled by the last bucket in fft_buckets
-        ctypes.c_float(ke_max),
+        ctypes.c_float(_ke_max_f32(ke_max)),
         ctypes.c_int(is_mgga))
     if err != 0:
         raise RuntimeError('Ecut kernel failed')
