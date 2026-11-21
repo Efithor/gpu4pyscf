@@ -185,7 +185,7 @@ void int1e_ovlp_kernel(double *out, PBCIntEnvVars envs, int *bas_ij_idx,
             int jshp = jsh % nbas;
             int i0 = ao_loc[ish];
             int j0 = ao_loc[jshp];
-            double *out_subblock = out + (cell_id*naoi+i0) * naoj + j0 - ij_offset;
+            double *out_subblock = out + ((size_t)cell_id*naoi+i0) * naoj + j0 - ij_offset;
 #pragma unroll
             for (int n = 0; n < GOUT_WIDTH; ++n) {
                 int ij = n*gout_stride+gout_id;
@@ -333,7 +333,7 @@ void int1e_kin_kernel(double *out, PBCIntEnvVars envs, int *bas_ij_idx,
             int jshp = jsh % nbas;
             int i0 = ao_loc[ish];
             int j0 = ao_loc[jshp];
-            double *out_subblock = out + (cell_id*naoi+i0) * naoj + j0 - ij_offset;
+            double *out_subblock = out + ((size_t)cell_id*naoi+i0) * naoj + j0 - ij_offset;
 #pragma unroll
             for (int n = 0; n < GOUT_WIDTH; ++n) {
                 int ij = n*gout_stride+gout_id;
@@ -479,12 +479,12 @@ void int1e_ipovlp_kernel(double *out, PBCIntEnvVars envs, int *bas_ij_idx,
         if (pair_ij < shl_pair1) {
             int *ao_loc = envs.ao_loc;
             int nbas = envs.cell0_nbas;
-            size_t nao2 = naoi * naoj;
+            size_t nao2 = (size_t)naoi * naoj;
             int cell_id = jsh / nbas;
             int jshp = jsh % nbas;
             int i0 = ao_loc[ish];
             int j0 = ao_loc[jshp];
-            double *outx = out + cell_id*nao2*3 + i0 * naoj + j0 - ij_offset;
+            double *outx = out + cell_id*nao2*3 + (size_t)i0 * naoj + j0 - ij_offset;
             double *outy = outx + nao2;
             double *outz = outx + nao2 * 2;
             int nfi = c_nf[li];
@@ -665,12 +665,12 @@ void int1e_ipkin_kernel(double *out, PBCIntEnvVars envs, int *bas_ij_idx,
         if (pair_ij < shl_pair1) {
             int *ao_loc = envs.ao_loc;
             int nbas = envs.cell0_nbas;
-            size_t nao2 = naoi * naoj;
+            size_t nao2 = (size_t)naoi * naoj;
             int cell_id = jsh / nbas;
             int jshp = jsh % nbas;
             int i0 = ao_loc[ish];
             int j0 = ao_loc[jshp];
-            double *outx = out + cell_id*nao2*3 + i0 * naoj + j0 - ij_offset;
+            double *outx = out + cell_id*nao2*3 + (size_t)i0 * naoj + j0 - ij_offset;
             double *outy = outx + nao2;
             double *outz = outx + nao2 * 2;
             int nfi = c_nf[li];
